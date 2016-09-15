@@ -20,19 +20,19 @@ import XCTest
 import XWebView
 
 extension XCTestExpectation : XWVScripting {
-    public class func isSelectorExcludedFromScript(selector: Selector) -> Bool {
+    public class func isSelectorExcludedFromScript(_ selector: Selector) -> Bool {
         return selector != #selector(XCTestExpectation.fulfill) &&
                selector != #selector(NSObject.description as () -> String)
     }
-    public class func isKeyExcludedFromScript(name: UnsafePointer<Int8>) -> Bool {
+    public class func isKeyExcludedFromScript(_ name: UnsafePointer<Int8>) -> Bool {
         return true
     }
 }
 
 class XWVTestCase : XCTestCase, WKNavigationDelegate {
     var webview: WKWebView!
-    private let namespaceForExpectation = "xwvexpectations"
-    private var onReady: ((WKWebView)->Void)?
+    fileprivate let namespaceForExpectation = "xwvexpectations"
+    fileprivate var onReady: ((WKWebView)->Void)?
 
     override func setUp() {
         super.setUp()
@@ -40,9 +40,9 @@ class XWVTestCase : XCTestCase, WKNavigationDelegate {
                      "function expectation(name){return \(namespaceForExpectation)[name];}\n"
         let script = WKUserScript(
             source: source,
-            injectionTime: WKUserScriptInjectionTime.AtDocumentStart,
+            injectionTime: WKUserScriptInjectionTime.atDocumentStart,
             forMainFrameOnly: true)
-        webview = WKWebView(frame: CGRectZero, configuration: WKWebViewConfiguration())
+        webview = WKWebView(frame: CGRect.zero, configuration: WKWebViewConfiguration())
         webview.configuration.userContentController.addUserScript(script)
         webview.navigationDelegate = self
     }
@@ -51,23 +51,23 @@ class XWVTestCase : XCTestCase, WKNavigationDelegate {
         super.tearDown()
     }
 
-    override func expectationWithDescription(description: String) -> XCTestExpectation {
-        let e = super.expectationWithDescription(description)
+    override func expectation(withDescription description: String) -> XCTestExpectation {
+        let e = super.expectation(description: description)
         webview.loadPlugin(e, namespace: "\(namespaceForExpectation).\(description)")
         return e
     }
 
-    func loadPlugin(object: NSObject, namespace: String, script: String) {
+    func loadPlugin(_ object: NSObject, namespace: String, script: String) {
         loadPlugin(object, namespace: namespace, script: script, onReady: nil)
     }
-    func loadPlugin(object: NSObject, namespace: String, script: String, onReady: ((WKWebView)->Void)?) {
+    func loadPlugin(_ object: NSObject, namespace: String, script: String, onReady: ((WKWebView)->Void)?) {
         self.onReady = onReady
         webview.loadPlugin(object, namespace: namespace)
         let html = "<html><script type='text/javascript'>\(script)</script></html>"
         webview.loadHTMLString(html, baseURL: nil)
     }
 
-    func webView(webView: WKWebView, didFinishNavigation navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         onReady?(webView)
     }
 }
@@ -77,8 +77,8 @@ class XWVTestCaseTest : XWVTestCase {
     }
     func testXWVTestCase() {
         let desc = "selftest"
-        _ = expectationWithDescription(desc)
+        _ = expectation(withDescription: desc)
         loadPlugin(Plugin(), namespace: "xwvtest", script: "fulfill('\(desc)');")
-        waitForExpectationsWithTimeout(1, handler: nil)
+        waitForExpectations(timeout: 1, handler: nil)
     }
 }

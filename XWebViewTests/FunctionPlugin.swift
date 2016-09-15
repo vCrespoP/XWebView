@@ -21,14 +21,14 @@ import XWebView
 class FunctionPlugin : XWVTestCase {
     class Plugin : NSObject, XWVScripting {
         dynamic var property = 123
-        private var expectation: XCTestExpectation?
+        fileprivate var expectation: XCTestExpectation?
         init(expectation: XCTestExpectation?) {
             self.expectation = expectation
         }
         func defaultMethod() {
             expectation?.fulfill()
         }
-        class func scriptNameForSelector(selector: Selector) -> String? {
+        class func scriptNameForSelector(_ selector: Selector) -> String? {
             return selector == #selector(Plugin.defaultMethod) ? "" : nil
         }
     }
@@ -38,20 +38,20 @@ class FunctionPlugin : XWVTestCase {
     func testDefaultMethod() {
         let desc = "defaultMethod"
         let script = "if (\(namespace) instanceof Function) fulfill('\(desc)')"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testCallDefaultMethod() {
-        let expectation = expectationWithDescription("callDefaultMethod")
+        let expectation = self.expectation(description: "callDefaultMethod")
         loadPlugin(Plugin(expectation: expectation), namespace: namespace, script: "\(namespace)()")
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testPropertyOfDefaultMethod() {
         let desc = "propertyOfDefaultMethod"
         let script = "if (\(namespace).property == 123) fulfill('\(desc)');"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 }

@@ -47,13 +47,13 @@ class InvocationTarget: NSObject {
     func echo(unicode u: UnicodeScalar) -> UnicodeScalar { return u }
     func echo(string s: String) -> String { return s }
     func echo(selector s: Selector) -> Selector { return s }
-    func echo(`class` c: AnyClass) -> AnyClass { return c }
+    func echo(class c: AnyClass) -> AnyClass { return c }
 
-    func add(a: Int, _ b: Int) -> Int { return a + b }
-    func concat(a: String, _ b: String) -> String { return a + b }
-    func convert(num: NSNumber) -> Int { return num.integerValue }
+    func add(_ a: Int, _ b: Int) -> Int { return a + b }
+    func concat(_ a: String, _ b: String) -> String { return a + b }
+    func convert(_ num: NSNumber) -> Int { return num.intValue }
 
-    func _new(expectation: XCTestExpectation) -> AnyObject {
+    func _new(_ expectation: XCTestExpectation) -> AnyObject {
         return LeakTest(expectation: expectation)
     }
 }
@@ -102,7 +102,7 @@ class InvocationTests : XCTestCase {
         XCTAssertTrue(inv[ #selector(InvocationTarget.echo(string:))]("abc") as? String == "abc")
         let selector = #selector(InvocationTarget.echo(selector:))
         XCTAssertTrue(inv[selector](selector) as? Selector == selector)
-        let cls = self.dynamicType
+        let cls = type(of: self)
         XCTAssertTrue(inv[ #selector(InvocationTarget.echo(class:))](cls) as? AnyClass === cls)
 
         XCTAssertTrue(inv[ #selector(InvocationTarget.convert(_:))](UInt8(12)) as? XInt == 12)
@@ -118,19 +118,19 @@ class InvocationTests : XCTestCase {
 
     func testLeak1() {
         autoreleasepool {
-            let expectation = expectationWithDescription("leak")
+            let expectation = self.expectation(description: "leak")
             let obj = inv[ #selector(InvocationTarget._new(_:))](expectation) as? InvocationTarget.LeakTest
             XCTAssertEqual(expectation, obj!.expectation)
         }
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 
     func testLeak2() {
         autoreleasepool {
-            let expectation = expectationWithDescription("leak")
+            let expectation = self.expectation(description: "leak")
             let obj = XWVInvocation.construct(InvocationTarget.LeakTest.self, initializer: #selector(InvocationTarget.LeakTest.init(expectation:)), withArguments: [expectation]) as? InvocationTarget.LeakTest
             XCTAssertEqual(expectation, obj!.expectation)
         }
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 }

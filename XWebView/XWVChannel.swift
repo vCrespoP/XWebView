@@ -17,21 +17,21 @@
 import Foundation
 import WebKit
 
-public class XWVChannel : NSObject, WKScriptMessageHandler {
-    private(set) public var identifier: String?
-    public let runLoop: NSRunLoop?
-    public let queue: dispatch_queue_t?
-    private(set) public weak var webView: WKWebView?
+open class XWVChannel : NSObject, WKScriptMessageHandler {
+    fileprivate(set) open var identifier: String?
+    open let runLoop: RunLoop?
+    open let queue: DispatchQueue?
+    fileprivate(set) open weak var webView: WKWebView?
     var typeInfo: XWVMetaObject!
 
-    private var instances = [Int: XWVBindingObject]()
-    private var userScript: XWVUserScript?
-    private(set) var principal: XWVBindingObject {
+    fileprivate var instances = [Int: XWVBindingObject]()
+    fileprivate var userScript: XWVUserScript?
+    fileprivate(set) var principal: XWVBindingObject {
         get { return instances[0]! }
         set { instances[0] = newValue }
     }
 
-    private class var sequenceNumber: UInt {
+    fileprivate class var sequenceNumber: UInt {
         struct sequence{
             static var number: UInt = 0
         }
@@ -39,46 +39,46 @@ public class XWVChannel : NSObject, WKScriptMessageHandler {
         return sequence.number
     }
 
-    private static var defaultQueue: dispatch_queue_t = {
+    fileprivate static var defaultQueue: DispatchQueue = {
         let label = "org.xwebview.default-queue"
-        return dispatch_queue_create(label, DISPATCH_QUEUE_SERIAL)
+        return DispatchQueue(label: label, attributes: [])
     }()
 
     public convenience init(webView: WKWebView) {
         self.init(webView: webView, queue: XWVChannel.defaultQueue)
     }
-    public convenience init(webView: WKWebView, thread: NSThread) {
-        let selector = #selector(NSRunLoop.currentRunLoop)
-        let runLoop = invoke(NSRunLoop.self, selector: selector, withArguments: [], onThread: thread) as! NSRunLoop
+    public convenience init(webView: WKWebView, thread: Thread) {
+        let selector = #selector(RunLoop.currentRunLoop)
+        let runLoop = invoke(RunLoop.self, selector: selector, withArguments: [], onThread: thread) as! RunLoop
         self.init(webView: webView, runLoop: runLoop)
     }
 
-    public init(webView: WKWebView, queue: dispatch_queue_t) {
-        assert(dispatch_queue_get_label(queue).memory != 0, "Queue must be labeled")
+    public init(webView: WKWebView, queue: DispatchQueue) {
+        assert(queue.label.pointee != 0, "Queue must be labeled")
         self.webView = webView
         self.queue = queue
         runLoop = nil
         webView.prepareForPlugin()
     }
 
-    public init(webView: WKWebView, runLoop: NSRunLoop) {
+    public init(webView: WKWebView, runLoop: RunLoop) {
         self.webView = webView
         self.runLoop = runLoop
         queue = nil
         webView.prepareForPlugin()
     }
 
-    public func bindPlugin(object: AnyObject, toNamespace namespace: String) -> XWVScriptObject? {
+    open func bindPlugin(_ object: AnyObject, toNamespace namespace: String) -> XWVScriptObject? {
         guard identifier == nil, let webView = webView else { return nil }
 
         let id = (object as? XWVScripting)?.channelIdentifier ?? String(XWVChannel.sequenceNumber)
         identifier = id
-        webView.configuration.userContentController.addScriptMessageHandler(self, name: id)
+        webView.configuration.userContentController.add(self, name: id)
         typeInfo = XWVMetaObject(plugin: object.dynamicType)
         principal = XWVBindingObject(namespace: namespace, channel: self, object: object)
 
         let script = WKUserScript(source: generateStubs(),
-                                  injectionTime: WKUserScriptInjectionTime.AtDocumentStart,
+                                  injectionTime: WKUserScriptInjectionTime.atDocumentStart,
                                   forMainFrameOnly: true)
         userScript = XWVUserScript(webView: webView, script: script)
 
@@ -86,29 +86,29 @@ public class XWVChannel : NSObject, WKScriptMessageHandler {
         return principal as XWVScriptObject
     }
 
-    public func unbind() {
+    open func unbind() {
         guard let id = identifier else { return }
         let namespace = principal.namespace
         let plugin = principal.plugin
         instances.removeAll(keepCapacity: false)
-        webView?.configuration.userContentController.removeScriptMessageHandlerForName(id)
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: id)
         userScript = nil
         identifier = nil
         log("+Plugin object \(plugin) is unbound from \(namespace)")
     }
 
-    public func userContentController(userContentController: WKUserContentController, didReceiveScriptMessage message: WKScriptMessage) {
+    open func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         // A workaround for crash when postMessage(undefined)
-        guard unsafeBitCast(message.body, COpaquePointer.self) != nil else { return }
+        guard unsafeBitCast(message.body, to: OpaquePointer.self) != nil else { return }
 
         if let body = message.body as? [String: AnyObject], let opcode = body["$opcode"] as? String {
-            let target = (body["$target"] as? NSNumber)?.integerValue ?? 0
+            let target = (body["$target"] as? NSNumber)?.intValue ?? 0
             if let object = instances[target] {
                 if opcode == "-" {
                     if target == 0 {
                         // Dispose plugin
                         unbind()
-                    } else if let instance = instances.removeValueForKey(target) {
+                    } else if let instance = instances.removeValue(forKey: target) {
                         // Dispose instance
                         log("+Instance \(target) is unbound from \(instance.namespace)")
                     } else {
@@ -134,19 +134,19 @@ public class XWVChannel : NSObject, WKScriptMessageHandler {
             } // else Unknown opcode
         } else if let obj = principal.plugin as? WKScriptMessageHandler {
             // Plugin claims for raw messages
-            obj.userContentController(userContentController, didReceiveScriptMessage: message)
+            obj.userContentController(userContentController, didReceive: message)
         } else {
             // discard unknown message
             log("-Unknown message: \(message.body)")
         }
     }
 
-    private func generateStubs() -> String {
-        func generateMethod(key: String, this: String, prebind: Bool) -> String {
+    fileprivate func generateStubs() -> String {
+        func generateMethod(_ key: String, this: String, prebind: Bool) -> String {
             let stub = "XWVPlugin.invokeNative.bind(\(this), '\(key)')"
             return prebind ? "\(stub);" : "function(){return \(stub).apply(null, arguments);}"
         }
-        func rewriteStub(stub: String, forKey key: String) -> String {
+        func rewriteStub(_ stub: String, forKey key: String) -> String {
             return (principal.plugin as? XWVScripting)?.rewriteGeneratedStub?(stub, forKey: key) ?? stub
         }
 

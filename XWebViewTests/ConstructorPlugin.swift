@@ -25,7 +25,7 @@ class ConstructorPlugin : XWVTestCase {
                 e.callMethod("fulfill", withArguments: nil, completionHandler: nil)
             }
         }
-        class func scriptNameForSelector(selector: Selector) -> String? {
+        class func scriptNameForSelector(_ selector: Selector) -> String? {
             return selector == #selector(Plugin0.init(expectation:)) ? "" : nil
         }
     }
@@ -34,19 +34,19 @@ class ConstructorPlugin : XWVTestCase {
         init(value: Int) {
             property = value
         }
-        class func scriptNameForSelector(selector: Selector) -> String? {
+        class func scriptNameForSelector(_ selector: Selector) -> String? {
             return selector == #selector(Plugin1.init(value:)) ? "" : nil
         }
     }
     class Plugin2 : NSObject, XWVScripting {
-        private let expectation: XWVScriptObject?
+        fileprivate let expectation: XWVScriptObject?
         init(expectation: AnyObject?) {
             self.expectation = expectation as? XWVScriptObject
         }
         func finalizeForScript() {
             expectation?.callMethod("fulfill", withArguments: nil, completionHandler: nil)
         }
-        class func scriptNameForSelector(selector: Selector) -> String? {
+        class func scriptNameForSelector(_ selector: Selector) -> String? {
             return selector == #selector(Plugin2.init(expectation:)) ? "" : nil
         }
     }
@@ -56,29 +56,29 @@ class ConstructorPlugin : XWVTestCase {
     func testConstructor() {
         let desc = "constructor"
         let script = "if (\(namespace) instanceof Function) fulfill('\(desc)')"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin0(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testConstruction() {
         let desc = "construction"
         let script = "new \(namespace)(expectation('\(desc)'))"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin0(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testSyncProperties() {
         let desc = "syncProperties"
         let script = "(new \(namespace)(456)).then(function(o){if (o.property==456) fulfill('\(desc)');})"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin1(value: 123), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testFinalizeForScript() {
         let desc = "finalizeForScript"
         let script = "(new \(namespace)(expectation('\(desc)'))).then(function(o){o.dispose();})"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin2(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 }

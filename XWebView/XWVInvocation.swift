@@ -17,16 +17,16 @@
 import Foundation
 import ObjectiveC
 
-public class XWVInvocation {
+open class XWVInvocation {
     public final let target: AnyObject
-    private let thread: NSThread?
+    fileprivate let thread: Thread?
 
-    public init(target: AnyObject, thread: NSThread? = nil) {
+    public init(target: AnyObject, thread: Thread? = nil) {
         self.target = target
         self.thread = thread
     }
 
-    public class func construct(`class`: AnyClass, initializer: Selector = #selector(NSObject.init), withArguments arguments: [Any!] = []) -> AnyObject? {
+    open class func construct(_ class: AnyClass, initializer: Selector = #selector(NSObject.init), withArguments arguments: [Any?] = []) -> AnyObject? {
         let alloc = #selector(_SpecialSelectors.alloc)
         guard let obj = invoke(`class`, selector: alloc, withArguments: []) as? AnyObject else {
             return nil
@@ -34,31 +34,32 @@ public class XWVInvocation {
         return invoke(obj, selector: initializer, withArguments: arguments) as? AnyObject
     }
 
-    public func call(selector: Selector, withArguments arguments: [Any!] = []) -> Any! {
+    open func call(_ selector: Selector, withArguments arguments: [Any?] = []) -> Any! {
         return invoke(target, selector: selector, withArguments: arguments, onThread: thread)
     }
     // No callback support, so return value is expected to lose.
-    public func asyncCall(selector: Selector, withArguments arguments: [Any!] = []) {
+    open func asyncCall(_ selector: Selector, withArguments arguments: [Any?] = []) {
         invoke(target, selector: selector, withArguments: arguments, onThread: thread, waitUntilDone: false)
     }
 
     // Syntactic sugar for calling method
-    public subscript (selector: Selector) -> (Any!...)->Any! {
-        return {
-            (args: Any!...)->Any! in
+    open subscript (selector: Selector) -> (Any?...) -> Any! {
+        return { (args: Any?...) -> Any! in
             self.call(selector, withArguments: args)
         }
     }
 }
 
 extension XWVInvocation {
+
     // Property accessor
-    public func getProperty(name: String) -> Any! {
+    public func getProperty(_ name: String) -> Any! {
         let getter = getterOfName(name)
-        assert(getter != Selector(), "Property '\(name)' does not exist")
+        //assert(getter != Selector(), "Property '\(name)' does not exist")
         return getter != Selector() ? call(getter) : Void()
     }
-    public func setValue(value: Any!, forProperty name: String) {
+  
+    public func setValue(_ value: Any!, forProperty name: String) {
         let setter = setterOfName(name)
         assert(setter != Selector(), "Property '\(name)' " +
                 (getterOfName(name) == nil ? "does not exist" : "is readonly"))
@@ -78,17 +79,17 @@ extension XWVInvocation {
         }
     }
 
-    private func getterOfName(name: String) -> Selector {
+    fileprivate func getterOfName(_ name: String) -> Selector {
         var getter = Selector()
         let property = class_getProperty(target.dynamicType, name)
         if property != nil {
             let attr = property_copyAttributeValue(property, "G")
-            getter = Selector(attr == nil ? name : String(UTF8String: attr)!)
+            getter = Selector(attr == nil ? name : String(validatingUTF8: attr)!)
             free(attr)
         }
         return getter
     }
-    private func setterOfName(name: String) -> Selector {
+    fileprivate func setterOfName(_ name: String) -> Selector {
         var setter = Selector()
         let property = class_getProperty(target.dynamicType, name)
         if property != nil {
@@ -96,9 +97,9 @@ extension XWVInvocation {
             if attr == nil {
                 attr = property_copyAttributeValue(property, "S")
                 if attr == nil {
-                    setter = Selector("set\(String(name.characters.first!).uppercaseString)\(String(name.characters.dropFirst())):")
+                    setter = Selector("set\(String(name.characters.first!).uppercased())\(String(name.characters.dropFirst())):")
                 } else {
-                    setter = Selector(String(UTF8String: attr)!)
+                    setter = Selector(String(validatingUTF8: attr)!)
                 }
             }
             free(attr)
@@ -113,24 +114,24 @@ extension XWVInvocation {
 // See: http://clang.llvm.org/docs/AutomaticReferenceCounting.html
 private let _NSInvocation: AnyClass = NSClassFromString("NSInvocation")!
 private let _NSMethodSignature: AnyClass = NSClassFromString("NSMethodSignature")!
-public func invoke(target: AnyObject, selector: Selector, withArguments arguments: [Any!], onThread thread: NSThread? = nil, waitUntilDone wait: Bool = true) -> Any! {
+public func invoke(_ target: AnyObject, selector: Selector, withArguments arguments: [Any!], onThread thread: Thread? = nil, waitUntilDone wait: Bool = true) -> Any! {
     let method = class_getInstanceMethod(target.dynamicType, selector)
     if method == nil {
         // TODO: supports forwordingTargetForSelector: of NSObject?
         (target as? NSObject)?.doesNotRecognizeSelector(selector)
         // Not an NSObject, mimic the behavior of NSObject
-        let reason = "-[\(target.dynamicType) \(selector)]: unrecognized selector sent to instance \(unsafeAddressOf(target))"
+        let reason = "-[\(target.dynamicType) \(selector)]: unrecognized selector sent to instance \(Unmanaged.passUnretained(target).toOpaque())"
         withVaList([reason]) { NSLogv("%@", $0) }
-        NSException(name: NSInvalidArgumentException, reason: reason, userInfo: nil).raise()
+        NSException(name: NSExceptionName.invalidArgumentException, reason: reason, userInfo: nil).raise()
     }
 
-    let sig = (_NSMethodSignature as! _NSMethodSignatureFactory).signatureWithObjCTypes(method_getTypeEncoding(method))
-    let inv = (_NSInvocation as! _NSInvocationFactory).invocationWithMethodSignature(sig)
+    let sig = (_NSMethodSignature as! _NSMethodSignatureFactory).signature(withObjCTypes: method_getTypeEncoding(method))
+    let inv = (_NSInvocation as! _NSInvocationFactory).invocation(with: sig)
 
     // Setup arguments
     precondition(arguments.count + 2 <= Int(method_getNumberOfArguments(method)),
                  "Too many arguments for calling -[\(target.dynamicType) \(selector)]")
-    var args = [[Int]](count: arguments.count, repeatedValue: [])
+    var args = [[Int]](repeating: [], count: arguments.count)
     for i in 0 ..< arguments.count {
         let type = sig.getArgumentTypeAtIndex(i + 2)
         let typeChar = Character(UnicodeScalar(UInt8(type[0])))
@@ -146,19 +147,19 @@ public func invoke(target: AnyObject, selector: Selector, withArguments argument
 
         if typeChar == "f", let float = argument as? Float {
             // Float type shouldn't be promoted to double if it is not variadic.
-            args[i] = [ Int(unsafeBitCast(float, Int32.self)) ]
-        } else if let val = argument as? CVarArgType {
+            args[i] = [ Int(unsafeBitCast(float, to: Int32.self)) ]
+        } else if let val = argument as? CVarArg {
             // Scalar(except float), pointer and Objective-C object types
             args[i] = val._cVarArgEncoding
         } else if let obj: AnyObject = argument as? AnyObject {
             // Pure swift object type
-            args[i] = [ unsafeBitCast(unsafeAddressOf(obj), Int.self) ]
+            args[i] = [ unsafeBitCast(Unmanaged.passUnretained(obj).toOpaque(), to: Int.self) ]
         } else {
             // Nil or unsupported type
-            assert(argument == nil, "Unsupported argument type '\(String(UTF8String: type))'")
+            assert(argument == nil, "Unsupported argument type '\(String(validatingUTF8: type))'")
             var align: Int = 0
             NSGetSizeAndAlignment(type, nil, &align)
-            args[i] = [Int](count: align / sizeof(Int), repeatedValue: 0)
+            args[i] = [Int](repeating: 0, count: align / sizeof(Int))
         }
         args[i].withUnsafeBufferPointer {
             inv.setArgument(UnsafeMutablePointer($0.baseAddress), atIndex: i + 2)
@@ -171,25 +172,25 @@ public func invoke(target: AnyObject, selector: Selector, withArguments argument
     }
     inv.selector = selector
 
-    if thread == nil || (thread == NSThread.currentThread() && wait) {
+    if thread == nil || (thread == Thread.current && wait) {
         inv.invokeWithTarget(target)
     } else {
-        let selector = #selector(_SpecialSelectors.invokeWithTarget(_:))
+        let selector = #selector(_SpecialSelectors.invoke(withTarget:)(_:))
         inv.retainArguments()
-        inv.performSelector(selector, onThread: thread!, withObject: target, waitUntilDone: wait)
+        inv.perform(selector, on: thread!, with: target, waitUntilDone: wait)
         guard wait else { return Void() }
     }
     if sig.methodReturnLength == 0 { return Void() }
 
     // Fetch the return value
-    let buffer = UnsafeMutablePointer<UInt8>.alloc(sig.methodReturnLength)
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: sig.methodReturnLength)
     inv.getReturnValue(buffer)
     defer {
         if sig.methodReturnType[0] == 0x40 && selector.returnsRetained {
             // To balance the retained return value
-            Unmanaged.passUnretained(UnsafePointer<AnyObject>(buffer).memory).release()
+            Unmanaged.passUnretained(UnsafePointer<AnyObject>(buffer).pointee).release()
         }
-        buffer.dealloc(sig.methodReturnLength)
+        buffer.deallocateCapacity(sig.methodReturnLength)
     }
     return castToAnyFromBytes(buffer, withObjCType: sig.methodReturnType)
 }
@@ -197,79 +198,79 @@ public func invoke(target: AnyObject, selector: Selector, withArguments argument
 
 // Convert byte array to specified Objective-C type
 // See: https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
-private func castToAnyFromBytes(bytes: UnsafePointer<Void>, withObjCType type: UnsafePointer<Int8>) -> Any! {
+private func castToAnyFromBytes(_ bytes: UnsafeRawPointer, withObjCType type: UnsafePointer<Int8>) -> Any! {
     switch Character(UnicodeScalar(UInt8(type[0]))) {
-    case "c": return UnsafePointer<CChar>(bytes).memory
-    case "i": return UnsafePointer<CInt>(bytes).memory
-    case "s": return UnsafePointer<CShort>(bytes).memory
-    case "l": return UnsafePointer<Int32>(bytes).memory
-    case "q": return UnsafePointer<CLongLong>(bytes).memory
-    case "C": return UnsafePointer<CUnsignedChar>(bytes).memory
-    case "I": return UnsafePointer<CUnsignedInt>(bytes).memory
-    case "S": return UnsafePointer<CUnsignedShort>(bytes).memory
-    case "L": return UnsafePointer<UInt32>(bytes).memory
-    case "Q": return UnsafePointer<CUnsignedLongLong>(bytes).memory
-    case "f": return UnsafePointer<CFloat>(bytes).memory
-    case "d": return UnsafePointer<CDouble>(bytes).memory
-    case "B": return UnsafePointer<CBool>(bytes).memory
+    case "c": return UnsafePointer<CChar>(bytes).pointee
+    case "i": return UnsafePointer<CInt>(bytes).pointee
+    case "s": return UnsafePointer<CShort>(bytes).pointee
+    case "l": return UnsafePointer<Int32>(bytes).pointee
+    case "q": return UnsafePointer<CLongLong>(bytes).pointee
+    case "C": return UnsafePointer<CUnsignedChar>(bytes).pointee
+    case "I": return UnsafePointer<CUnsignedInt>(bytes).pointee
+    case "S": return UnsafePointer<CUnsignedShort>(bytes).pointee
+    case "L": return UnsafePointer<UInt32>(bytes).pointee
+    case "Q": return UnsafePointer<CUnsignedLongLong>(bytes).pointee
+    case "f": return UnsafePointer<CFloat>(bytes).pointee
+    case "d": return UnsafePointer<CDouble>(bytes).pointee
+    case "B": return UnsafePointer<CBool>(bytes).pointee
     case "v": assertionFailure("Why cast to Void type?")
     case "*": return UnsafePointer<CChar>(bytes)
-    case "@": return UnsafePointer<AnyObject!>(bytes).memory
-    case "#": return UnsafePointer<AnyClass!>(bytes).memory
-    case ":": return UnsafePointer<Selector>(bytes).memory
-    case "^": return UnsafePointer<COpaquePointer>(bytes).memory
-    default:  assertionFailure("Unknown Objective-C type encoding '\(String(UTF8String: type))'")
+    case "@": return UnsafePointer<AnyObject!>(bytes).pointee
+    case "#": return UnsafePointer<AnyClass!>(bytes).pointee
+    case ":": return UnsafePointer<Selector>(bytes).pointee
+    case "^": return UnsafePointer<OpaquePointer>(bytes).pointee
+    default:  assertionFailure("Unknown Objective-C type encoding '\(String(validatingUTF8: type))'")
     }
     return Void()
 }
 
 // Convert AnyObject to specified Objective-C type
-private func castToAnyFromObject(object: AnyObject, withObjCType type: UnsafePointer<Int8>) -> Any! {
+private func castToAnyFromObject(_ object: AnyObject, withObjCType type: UnsafePointer<Int8>) -> Any! {
     let num = object as? NSNumber
     switch Character(UnicodeScalar(UInt8(type[0]))) {
-    case "c": return num?.charValue
-    case "i": return num?.intValue
-    case "s": return num?.shortValue
-    case "l": return num?.intValue
-    case "q": return num?.longLongValue
-    case "C": return num?.unsignedCharValue
-    case "I": return num?.unsignedIntValue
-    case "S": return num?.unsignedShortValue
-    case "L": return num?.unsignedIntValue
-    case "Q": return num?.unsignedLongLongValue
+    case "c": return num?.int8Value
+    case "i": return num?.int32Value
+    case "s": return num?.int16Value
+    case "l": return num?.int32Value
+    case "q": return num?.int64Value
+    case "C": return num?.uint8Value
+    case "I": return num?.uint32Value
+    case "S": return num?.uint16Value
+    case "L": return num?.uint32Value
+    case "Q": return num?.uint64Value
     case "f": return num?.floatValue
     case "d": return num?.doubleValue
     case "B": return num?.boolValue
     case "v": return Void()
-    case "*": return (object as? String)?.nulTerminatedUTF8.withUnsafeBufferPointer{ COpaquePointer($0.baseAddress) }
+    case "*": return (object as? String)?.nulTerminatedUTF8.withUnsafeBufferPointer{ OpaquePointer($0.baseAddress) }
     case ":": return object is String ? Selector(object as! String) : Selector()
     case "@": return object
     case "#": return object as? AnyClass
     case "^": return (object as? NSValue)?.pointerValue
-    default:  assertionFailure("Unknown Objective-C type encoding '\(String(UTF8String: type))'")
+    default:  assertionFailure("Unknown Objective-C type encoding '\(String(validatingUTF8: type))'")
     }
     return nil
 }
 
 // Convert Any value to appropriate Objective-C object
-public func castToObjectFromAny(value: Any!) -> AnyObject! {
+public func castToObjectFromAny(_ value: Any!) -> AnyObject! {
     if value == nil || value is AnyObject {
         // Some scalar types (Int, UInt, Bool, Float and Double) can be converted automatically by runtime.
         return value as? AnyObject
     }
 
     switch value {
-    case let v as Int8:           return NSNumber(char: v)
-    case let v as Int16:          return NSNumber(short: v)
-    case let v as Int32:          return NSNumber(int: v)
-    case let v as Int64:          return NSNumber(longLong: v)
-    case let v as UInt8:          return NSNumber(unsignedChar: v)
-    case let v as UInt16:         return NSNumber(unsignedShort: v)
-    case let v as UInt32:         return NSNumber(unsignedInt: v)
-    case let v as UInt64:         return NSNumber(unsignedLongLong: v)
-    case let v as UnicodeScalar:  return NSNumber(unsignedInt: v.value)
+    case let v as Int8:           return NSNumber(value: v as Int8)
+    case let v as Int16:          return NSNumber(value: v as Int16)
+    case let v as Int32:          return NSNumber(value: v as Int32)
+    case let v as Int64:          return NSNumber(value: v as Int64)
+    case let v as UInt8:          return NSNumber(value: v as UInt8)
+    case let v as UInt16:         return NSNumber(value: v as UInt16)
+    case let v as UInt32:         return NSNumber(value: v as UInt32)
+    case let v as UInt64:         return NSNumber(value: v as UInt64)
+    case let v as UnicodeScalar:  return NSNumber(value: v.value as UInt32)
     case let s as Selector:       return String(s)
-    case let p as COpaquePointer: return NSValue(pointer: UnsafePointer<Void>(p))
+    case let p as OpaquePointer: return NSValue(pointer: UnsafeRawPointer(p))
     default:
         assert(value is Void, "Can't convert '\(value.dynamicType)' to AnyObject")
     }
@@ -277,19 +278,19 @@ public func castToObjectFromAny(value: Any!) -> AnyObject! {
 }
 
 // Additional Swift types which can be represented in C type.
-extension Bool: CVarArgType {
+extension Bool: CVarArg {
     public var _cVarArgEncoding: [Int] {
         return [ Int(self) ]
     }
 }
-extension UnicodeScalar: CVarArgType {
+extension UnicodeScalar: CVarArg {
     public var _cVarArgEncoding: [Int] {
         return [ Int(self.value) ]
     }
 }
-extension Selector: CVarArgType {
+extension Selector: CVarArg {
     public var _cVarArgEncoding: [Int] {
-        return [ unsafeBitCast(self, Int.self) ]
+        return [ unsafeBitCast(self, to: Int.self) ]
     }
 }
 
@@ -311,13 +312,13 @@ private extension Selector {
     ]
     var family: Family {
         // See: http://clang.llvm.org/docs/AutomaticReferenceCounting.html#id34
-        var s = unsafeBitCast(self, UnsafePointer<Int8>.self)
-        while s.memory == 0x5f { s += 1 }  // skip underscore
+        var s = unsafeBitCast(self, to: UnsafePointer<Int8>.self)
+        while s.pointee == 0x5f { s += 1 }  // skip underscore
         for p in Selector.prefixes {
-            let lowercase: Range<CChar> = 97...122
+            let lowercase: CountableRange<CChar> = 97...122
             let l = p.count
-            if strncmp(s, p, l) == 0 && !lowercase.contains(s.advancedBy(l).memory) {
-                return Family(rawValue: s.memory)!
+            if strncmp(s, p, l) == 0 && !lowercase.contains(s.advancedBy(l).pointee) {
+                return Family(rawValue: s.pointee)!
             }
         }
         return .none

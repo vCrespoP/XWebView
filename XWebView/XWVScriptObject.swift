@@ -17,69 +17,69 @@
 import Foundation
 import WebKit
 
-public class XWVScriptObject : XWVObject {
+open class XWVScriptObject : XWVObject {
     // JavaScript object operations
-    public func construct(arguments arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
+    open func construct(arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
         let exp = "new " + scriptForCallingMethod(nil, arguments: arguments)
         evaluateExpression(exp, completionHandler: completionHandler)
     }
-    public func call(arguments arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
+    open func call(arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
         let exp = scriptForCallingMethod(nil, arguments: arguments)
         evaluateExpression(exp, completionHandler: completionHandler)
     }
-    public func callMethod(name: String, withArguments arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
+    open func callMethod(_ name: String, withArguments arguments: [AnyObject]?, completionHandler: ((AnyObject?, NSError?) -> Void)?) {
         let exp = scriptForCallingMethod(name, arguments: arguments)
         evaluateExpression(exp, completionHandler: completionHandler)
     }
 
-    public func construct(arguments arguments: [AnyObject]?) throws -> AnyObject {
+    open func construct(arguments: [AnyObject]?) throws -> AnyObject {
         let exp = "new \(scriptForCallingMethod(nil, arguments: arguments))"
         guard let result = try evaluateExpression(exp) else {
-            let code = WKErrorCode.JavaScriptExceptionOccurred.rawValue
+            let code = WKError.javaScriptExceptionOccurred.rawValue
             throw NSError(domain: WKErrorDomain, code: code, userInfo: nil)
         }
         return result
     }
-    public func call(arguments arguments: [AnyObject]?) throws -> AnyObject? {
+    open func call(arguments: [AnyObject]?) throws -> AnyObject? {
         return try evaluateExpression(scriptForCallingMethod(nil, arguments: arguments))
     }
-    public func callMethod(name: String, withArguments arguments: [AnyObject]?) throws -> AnyObject? {
+    open func callMethod(_ name: String, withArguments arguments: [AnyObject]?) throws -> AnyObject? {
         return try evaluateExpression(scriptForCallingMethod(name, arguments: arguments))
     }
-    public func call(arguments arguments: [AnyObject]?, error: NSErrorPointer) -> AnyObject? {
+    open func call(arguments: [AnyObject]?, error: NSErrorPointer) -> AnyObject? {
         return evaluateExpression(scriptForCallingMethod(nil, arguments: arguments), error: error)
     }
-    public func callMethod(name: String, withArguments arguments: [AnyObject]?, error: NSErrorPointer) -> AnyObject? {
+    open func callMethod(_ name: String, withArguments arguments: [AnyObject]?, error: NSErrorPointer) -> AnyObject? {
         return evaluateExpression(scriptForCallingMethod(name, arguments: arguments), error: error)
     }
 
-    public func defineProperty(name: String, descriptor: [String:AnyObject]) -> AnyObject? {
+    open func defineProperty(_ name: String, descriptor: [String:AnyObject]) -> AnyObject? {
         let exp = "Object.defineProperty(\(namespace), \(name), \(serialize(descriptor)))"
         return try! evaluateExpression(exp)
     }
-    public func deleteProperty(name: String) -> Bool {
+    open func deleteProperty(_ name: String) -> Bool {
         let result: AnyObject? = try! evaluateExpression("delete \(scriptForFetchingProperty(name))")
         return (result as? NSNumber)?.boolValue ?? false
     }
-    public func hasProperty(name: String) -> Bool {
+    open func hasProperty(_ name: String) -> Bool {
         let result: AnyObject? = try! evaluateExpression("\(scriptForFetchingProperty(name)) != undefined")
         return (result as? NSNumber)?.boolValue ?? false
     }
 
-    public func value(forProperty name: String) -> AnyObject? {
+    open func value(forProperty name: String) -> AnyObject? {
         return try! evaluateExpression(scriptForFetchingProperty(name))
     }
-    public func setValue(value: AnyObject?, forProperty name:String) {
+    open func setValue(_ value: AnyObject?, forProperty name:String) {
         webView?.evaluateJavaScript(scriptForUpdatingProperty(name, value: value), completionHandler: nil)
     }
-    public func value(atIndex index: UInt) -> AnyObject? {
+    open func value(atIndex index: UInt) -> AnyObject? {
         return try! evaluateExpression("\(namespace)[\(index)]")
     }
-    public func setValue(value: AnyObject?, atIndex index: UInt) {
+    open func setValue(_ value: AnyObject?, atIndex index: UInt) {
         webView?.evaluateJavaScript("\(namespace)[\(index)] = \(serialize(value))", completionHandler: nil)
     }
 
-    private func scriptForFetchingProperty(name: String!) -> String {
+    fileprivate func scriptForFetchingProperty(_ name: String!) -> String {
         if name == nil {
             return namespace
         } else if name.isEmpty {
@@ -90,12 +90,12 @@ public class XWVScriptObject : XWVObject {
             return "\(namespace).\(name)"
         }
     }
-    private func scriptForUpdatingProperty(name: String!, value: AnyObject?) -> String {
+    fileprivate func scriptForUpdatingProperty(_ name: String!, value: AnyObject?) -> String {
         return scriptForFetchingProperty(name) + " = " + serialize(value)
     }
-    private func scriptForCallingMethod(name: String!, arguments: [AnyObject]?) -> String {
+    fileprivate func scriptForCallingMethod(_ name: String!, arguments: [AnyObject]?) -> String {
         let args = arguments?.map(serialize) ?? []
-        return scriptForFetchingProperty(name) + "(" + args.joinWithSeparator(", ") + ")"
+        return scriptForFetchingProperty(name) + "(" + args.joined(separator: ", ") + ")"
     }
 }
 
@@ -120,7 +120,7 @@ extension XWVScriptObject {
 }
 
 class XWVWindowObject: XWVScriptObject {
-    private let origin: XWVObject
+    fileprivate let origin: XWVObject
     init(webView: WKWebView) {
         origin = XWVObject(namespace: "XWVPlugin.context", webView: webView)
         super.init(namespace: "window", origin: origin)

@@ -18,30 +18,51 @@ import Foundation
 import ObjectiveC
 import WebKit
 
+fileprivate func < <T : Comparable>(lhs: T?, rhs: T?) -> Bool {
+  switch (lhs, rhs) {
+  case let (l?, r?):
+    return l < r
+  case (nil, _?):
+    return true
+  default:
+    return false
+  }
+}
+
+fileprivate func > <T : Comparable>(lhs: T?, rhs: T?) -> Bool {
+  switch (lhs, rhs) {
+  case let (l?, r?):
+    return l > r
+  default:
+    return rhs < lhs
+  }
+}
+
+
 extension WKWebView {
     public var windowObject: XWVScriptObject {
         return XWVWindowObject(webView: self)
     }
 
-    public func loadPlugin(object: AnyObject, namespace: String) -> XWVScriptObject? {
+    public func loadPlugin(_ object: AnyObject, namespace: String) -> XWVScriptObject? {
         let channel = XWVChannel(webView: self)
         return channel.bindPlugin(object, toNamespace: namespace)
     }
 
     func prepareForPlugin() {
-        let key = unsafeAddressOf(XWVChannel)
+        let key = Unmanaged.passUnretained(XWVChannel).toOpaque()
         if objc_getAssociatedObject(self, key) != nil { return }
 
-        let bundle = NSBundle(forClass: XWVChannel.self)
-        guard let path = bundle.pathForResource("xwebview", ofType: "js"),
-            let source = try? NSString(contentsOfFile: path, encoding: NSUTF8StringEncoding) else {
+        let bundle = Bundle(for: XWVChannel.self)
+        guard let path = bundle.path(forResource: "xwebview", ofType: "js"),
+            let source = try? NSString(contentsOfFile: path, encoding: String.Encoding.utf8.rawValue) else {
             die("Failed to read provision script: xwebview.js")
         }
-        let time = WKUserScriptInjectionTime.AtDocumentStart
+        let time = WKUserScriptInjectionTime.atDocumentStart
         let script = WKUserScript(source: source as String, injectionTime: time, forMainFrameOnly: true)
         let xwvplugin = XWVUserScript(webView: self, script: script, namespace: "XWVPlugin")
         objc_setAssociatedObject(self, key, xwvplugin, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        log("+WKWebView(\(unsafeAddressOf(self))) is ready for loading plugins")
+        log("+WKWebView(\(Unmanaged.passUnretained(self).toOpaque())) is ready for loading plugins")
     }
 }
 
@@ -49,12 +70,12 @@ extension WKWebView {
     // Synchronized evaluateJavaScript
     // It returns nil if script is a statement or its result is undefined.
     // So, Swift cannot map the throwing method to Objective-C method.
-    public func evaluateJavaScript(script: String) throws -> AnyObject? {
+    public func evaluateJavaScript(_ script: String) throws -> AnyObject? {
         var result: AnyObject?
         var error: NSError?
         var done = false
         let timeout = 3.0
-        if NSThread.isMainThread() {
+        if Thread.isMainThread {
             evaluateJavaScript(script) {
                 (obj: AnyObject?, err: NSError?)->Void in
                 result = obj
@@ -62,14 +83,14 @@ extension WKWebView {
                 done = true
             }
             while !done {
-                let reason = CFRunLoopRunInMode(kCFRunLoopDefaultMode, timeout, true)
-                if reason != CFRunLoopRunResult.HandledSource {
+                let reason = CFRunLoopRunInMode(CFRunLoopMode.defaultMode, timeout, true)
+                if reason != CFRunLoopRunResult.handledSource {
                     break
                 }
             }
         } else {
             let condition: NSCondition = NSCondition()
-            dispatch_async(dispatch_get_main_queue()) {
+            DispatchQueue.main.async {
                 [weak self] in
                 self?.evaluateJavaScript(script) {
                     (obj: AnyObject?, err: NSError?)->Void in
@@ -83,7 +104,7 @@ extension WKWebView {
             }
             condition.lock()
             while !done {
-                if !condition.waitUntilDate(NSDate(timeIntervalSinceNow: timeout)) {
+                if !condition.wait(until: Date(timeIntervalSinceNow: timeout)) {
                     break
                 }
             }
@@ -97,7 +118,7 @@ extension WKWebView {
     }
 
     // Wrapper method of synchronized evaluateJavaScript for Objective-C
-    public func evaluateJavaScript(script: String, error: NSErrorPointer) -> AnyObject? {
+    public func evaluateJavaScript(_ script: String, error: NSErrorPointer?) -> AnyObject? {
         var result: AnyObject?
         var err: NSError?
         do {
@@ -105,26 +126,26 @@ extension WKWebView {
         } catch let e as NSError {
             err = e
         }
-        if error != nil { error.memory = err }
+        if error != nil { error??.pointee = err }
         return result
     }
 }
 
 extension WKWebView {
     // Overlay support for loading file URL
-    public func loadFileURL(URL: NSURL, overlayURLs: [NSURL]? = nil) -> WKNavigation? {
+    public func loadFileURL(_ URL: Foundation.URL, overlayURLs: [Foundation.URL]? = nil) -> WKNavigation? {
         guard overlayURLs?.count > 0 else {
-            return loadFileURL(URL, allowingReadAccessToURL: URL.baseURL!)
+            return loadFileURL(URL, allowingReadAccessTo: URL.baseURL!)
         }
 
-        guard URL.fileURL && URL.baseURL != nil else {
+        guard URL.isFileURL && URL.baseURL != nil else {
             assertionFailure("URL must be a relative file URL.")
             return nil
         }
 
         guard let port = startHttpd(rootURL: URL.baseURL!, overlayURLs: overlayURLs) else { return nil }
-        let url = NSURL(string: URL.resourceSpecifier, relativeToURL: NSURL(string: "http://127.0.0.1:\(port)"))
-        return loadRequest(NSURLRequest(URL: url!))
+        let url = Foundation.URL(string: URL.resourceSpecifier, relativeTo: Foundation.URL(string: "http://127.0.0.1:\(port)"))
+        return load(URLRequest(url: url!))
     }
 }
 
@@ -136,12 +157,12 @@ extension WKWebView {
 
     // Swift 2 doesn't support override +load method of NSObject, override +initialize instead.
     // See http://nshipster.com/swift-objc-runtime/
-    private static var initialized: dispatch_once_t = 0
-    public override class func initialize() {
+    fileprivate static var initialized: Int = 0
+    open override class func initialize() {
         //if #available(iOS 9, *) { return }
         guard self == WKWebView.self else { return }
         dispatch_once(&initialized) {
-            let selector = #selector(WKWebView.loadFileURL(_:allowingReadAccessToURL:))
+            let selector = #selector(WKWebView.self.loadFileURL(_:allowingReadAccessTo:)(_:allowingReadAccessToURL:))
             let method = class_getInstanceMethod(self, #selector(WKWebView._loadFileURL(_:allowingReadAccessToURL:)))
             assert(method != nil)
             if class_addMethod(self, selector, method_getImplementation(method), method_getTypeEncoding(method)) {
@@ -154,38 +175,38 @@ extension WKWebView {
         }
     }
 
-    @objc private func _loadFileURL(URL: NSURL, allowingReadAccessToURL readAccessURL: NSURL) -> WKNavigation? {
+    @objc fileprivate func _loadFileURL(_ URL: Foundation.URL, allowingReadAccessToURL readAccessURL: Foundation.URL) -> WKNavigation? {
         // readAccessURL must contain URL
-        let fileManager = NSFileManager.defaultManager()
-        var relationship: NSURLRelationship = NSURLRelationship.Other
-        _ = try? fileManager.getRelationship(&relationship, ofDirectoryAtURL: readAccessURL, toItemAtURL: URL)
-        guard URL.fileURL && readAccessURL.fileURL && relationship != NSURLRelationship.Other else {
-            assert(relationship != NSURLRelationship.Other, "readAccessURL must contain URL")
-            assert(URL.fileURL && readAccessURL.fileURL, "URL and readAccessURL must be file URLs")
+        let fileManager = FileManager.default
+        var relationship: FileManager.URLRelationship = FileManager.URLRelationship.other
+        _ = try? fileManager.getRelationship(&relationship, ofDirectoryAt: readAccessURL, toItemAt: URL)
+        guard URL.isFileURL && readAccessURL.isFileURL && relationship != FileManager.URLRelationship.other else {
+            assert(relationship != FileManager.URLRelationship.other, "readAccessURL must contain URL")
+            assert(URL.isFileURL && readAccessURL.isFileURL, "URL and readAccessURL must be file URLs")
             return nil
         }
 
         guard let port = startHttpd(rootURL: readAccessURL) else { return nil }
-        var path = URL.path![readAccessURL.path!.endIndex ..< URL.path!.endIndex]
+        var path = URL.path[readAccessURL.path.endIndex ..< URL.path.endIndex]
         if let query = URL.query { path += "?\(query)" }
         if let fragment = URL.fragment { path += "#\(fragment)" }
-        let url = NSURL(string: path , relativeToURL: NSURL(string: "http://127.0.0.1:\(port)"))
-        return loadRequest(NSURLRequest(URL: url!))
+        let url = Foundation.URL(string: path , relativeTo: Foundation.URL(string: "http://127.0.0.1:\(port)"))
+        return load(URLRequest(url: url!))
     }
 
-    @objc private func _loadHTMLString(html: String, baseURL: NSURL) -> WKNavigation? {
-        guard baseURL.fileURL else {
+    @objc fileprivate func _loadHTMLString(_ html: String, baseURL: URL) -> WKNavigation? {
+        guard baseURL.isFileURL else {
             // call original method implementation
             return _loadHTMLString(html, baseURL: baseURL)
         }
 
         guard let port = startHttpd(rootURL: baseURL) else { return nil }
-        let url = NSURL(string: "http://127.0.0.1:\(port)/")
+        let url = URL(string: "http://127.0.0.1:\(port)/")
         return loadHTMLString(html, baseURL: url)
     }
 
-    private func startHttpd(rootURL rootURL: NSURL, overlayURLs: [NSURL]? = nil) -> in_port_t? {
-        let key = unsafeAddressOf(XWVHttpServer)
+    fileprivate func startHttpd(rootURL: URL, overlayURLs: [URL]? = nil) -> in_port_t? {
+        let key = Unmanaged.passUnretained(XWVHttpServer).toOpaque()
         if let httpd = objc_getAssociatedObject(self, key) as? XWVHttpServer {
             if httpd.rootURL == rootURL && httpd.overlayURLs == overlayURLs ?? [] {
                 return httpd.port

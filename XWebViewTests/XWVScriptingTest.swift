@@ -24,7 +24,7 @@ class XWVScriptingTest : XWVTestCase {
         init(expectation: XCTestExpectation?) {
             self.expectation = expectation
         }
-        func rewriteGeneratedStub(stub: String, forKey key: String) -> String {
+        func rewriteGeneratedStub(_ stub: String, forKey key: String) -> String {
             switch key {
             case ".global": return stub + "window.stub = true;\n"
             case ".local": return stub + "exports.abc = true;\n"
@@ -34,11 +34,11 @@ class XWVScriptingTest : XWVTestCase {
         func finalizeForScript() {
             expectation?.fulfill()
         }
-        class func isSelectorExcludedFromScript(selector: Selector) -> Bool {
+        class func isSelectorExcludedFromScript(_ selector: Selector) -> Bool {
             return selector == #selector(Plugin.init(expectation:))
         }
-        class func isKeyExcludedFromScript(name: UnsafePointer<Int8>) -> Bool {
-            return String(UTF8String: name) == "expectation"
+        class func isKeyExcludedFromScript(_ name: UnsafePointer<Int8>) -> Bool {
+            return String(validatingUTF8: name) == "expectation"
         }
     }
 
@@ -47,30 +47,30 @@ class XWVScriptingTest : XWVTestCase {
     func testRewriteGeneratedStub() {
         let desc = "javascriptStub"
         let script = "if (window.stub && \(namespace).abc) fulfill('\(desc)');"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 
     func testFinalizeForScript() {
         let desc = "finalizeForScript"
         let script = "\(namespace).dispose()"
-        let expectation = expectationWithDescription(desc)
+        let expectation = self.expectation(description: desc)
         loadPlugin(Plugin(expectation: expectation), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testIsSelectorExcluded() {
         let desc = "isSelectorExcluded"
         let script = "if (\(namespace).initWithExpectation == undefined) fulfill('\(desc)')"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
     func testIsKeyExcluded() {
         let desc = "isKeyExcluded"
         let script = "if (!\(namespace).hasOwnProperty('expectation')) fulfill('\(desc)')"
-        _ = expectationWithDescription(desc)
+        _ = expectation(description: desc)
         loadPlugin(Plugin(expectation: nil), namespace: namespace, script: script)
-        waitForExpectationsWithTimeout(2, handler: nil)
+        waitForExpectations(timeout: 2, handler: nil)
     }
 }
