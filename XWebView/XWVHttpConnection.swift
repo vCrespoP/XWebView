@@ -17,28 +17,28 @@
 import Foundation
 
 protocol XWVHttpConnectionDelegate {
-    func handleRequest(request: NSURLRequest) -> NSHTTPURLResponse
-    func didOpenConnection(connection: XWVHttpConnection)
-    func didCloseConnection(connection: XWVHttpConnection)
+    func handleRequest(_ request: URLRequest) -> HTTPURLResponse
+    func didOpenConnection(_ connection: XWVHttpConnection)
+    func didCloseConnection(_ connection: XWVHttpConnection)
 }
 
 final class XWVHttpConnection : NSObject {
-    private let handle: CFSocketNativeHandle
-    private let delegate: XWVHttpConnectionDelegate
-    private var input: NSInputStream!
-    private var output: NSOutputStream!
-    private let bufferMaxSize = 64 * 1024
+    fileprivate let handle: CFSocketNativeHandle
+    fileprivate let delegate: XWVHttpConnectionDelegate
+    fileprivate var input: InputStream!
+    fileprivate var output: OutputStream!
+    fileprivate let bufferMaxSize = 64 * 1024
 
     // input state
-    private var requestQueue = [NSURLRequest]()
-    private var inputBuffer: NSMutableData!
-    private var cursor: Int = 0
+    fileprivate var requestQueue = [URLRequest]()
+    fileprivate var inputBuffer: NSMutableData!
+    fileprivate var cursor: Int = 0
 
     // output state
-    private var outputBuffer: NSData!
-    private var bytesRemained: Int = 0
-    private var fileHandle: NSFileHandle!
-    private var fileSize: Int = 0
+    fileprivate var outputBuffer: Data!
+    fileprivate var bytesRemained: Int = 0
+    fileprivate var fileHandle: FileHandle!
+    fileprivate var fileSize: Int = 0
 
     init(handle: CFSocketNativeHandle, delegate: XWVHttpConnectionDelegate) {
         self.handle = handle
@@ -47,24 +47,24 @@ final class XWVHttpConnection : NSObject {
     }
 
     func open() -> Bool {
-        let ptr1 = UnsafeMutablePointer<Unmanaged<CFReadStream>?>.alloc(1)
-        let ptr2 = UnsafeMutablePointer<Unmanaged<CFWriteStream>?>.alloc(1)
+        let ptr1 = UnsafeMutablePointer<Unmanaged<CFReadStream>?>.allocate(capacity: 1)
+        let ptr2 = UnsafeMutablePointer<Unmanaged<CFWriteStream>?>.allocate(capacity: 1)
         defer {
-            ptr1.dealloc(1)
-            ptr2.dealloc(1)
+            ptr1.deallocate(capacity: 1)
+            ptr2.deallocate(capacity: 1)
         }
         CFStreamCreatePairWithSocket(nil, handle, ptr1, ptr2)
-        if ptr1.memory == nil || ptr2.memory == nil { return false }
+        if ptr1.pointee == nil || ptr2.pointee == nil { return false }
 
-        input = ptr1.memory!.takeRetainedValue()
-        output = ptr2.memory!.takeRetainedValue()
-        CFReadStreamSetProperty(input, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue)
-        CFWriteStreamSetProperty(output, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue)
+        input = ptr1.pointee!.takeRetainedValue()
+        output = ptr2.pointee!.takeRetainedValue()
+        CFReadStreamSetProperty(input, CFStreamPropertyKey(kCFStreamPropertyShouldCloseNativeSocket), kCFBooleanTrue)
+        CFWriteStreamSetProperty(output, CFStreamPropertyKey(kCFStreamPropertyShouldCloseNativeSocket), kCFBooleanTrue)
 
         input.delegate = self
         output.delegate = self
-        input.scheduleInRunLoop(NSRunLoop.currentRunLoop(), forMode: NSDefaultRunLoopMode)
-        output.scheduleInRunLoop(NSRunLoop.currentRunLoop(), forMode: NSDefaultRunLoopMode)
+        input.schedule(in: RunLoop.current, forMode: RunLoopMode.defaultRunLoopMode)
+        output.schedule(in: RunLoop.current, forMode: RunLoopMode.defaultRunLoopMode)
         input.open()
         output.open()
         delegate.didOpenConnection(self)
@@ -80,10 +80,10 @@ final class XWVHttpConnection : NSObject {
     }
 }
 
-extension XWVHttpConnection : NSStreamDelegate {
-    @objc func stream(aStream: NSStream, handleEvent eventCode: NSStreamEvent) {
+extension XWVHttpConnection : StreamDelegate {
+    @objc func stream(_ aStream: Stream, handle eventCode: Stream.Event) {
         switch eventCode {
-        case NSStreamEvent.OpenCompleted:
+        case Stream.Event.openCompleted:
             // Initialize input/output state.
             if aStream === input {
                 inputBuffer = NSMutableData(length: 512)
@@ -94,31 +94,33 @@ extension XWVHttpConnection : NSStreamDelegate {
                 fileSize = 0
             }
 
-        case NSStreamEvent.HasBytesAvailable:
+        case Stream.Event.hasBytesAvailable:
             let base = UnsafeMutablePointer<UInt8>(inputBuffer.mutableBytes)
-            let bytesReaded = input.read(base.advancedBy(cursor), maxLength: inputBuffer.length - cursor)
+            
+            
+            let bytesReaded = input.read(base.advanced(by: cursor), maxLength: inputBuffer.length - cursor)
             guard bytesReaded > 0 else { break }
 
             var bytesConsumed = 0
-            var ptr = cursor > 3 ? base.advancedBy(cursor - 3): base
+            var ptr = cursor > 3 ? base.advanced(by: cursor - 3): base
             for _ in 0 ..< bytesReaded {
-                if UnsafePointer<UInt32>(ptr).memory == UInt32(bigEndian: 0x0d0a0d0a) {
+                if UnsafePointer<UInt32>(ptr).pointee == UInt32(bigEndian: 0x0d0a0d0a) {
                     // End of request header.
                     ptr += 3
-                    let data = inputBuffer.subdataWithRange(NSRange(bytesConsumed...base.distanceTo(ptr)))
+                    let data = inputBuffer.subdata(with: NSRange(bytesConsumed...base.distance(to: ptr)))
                     if let request = NSMutableURLRequest(data: data) {
-                        requestQueue.insert(request, atIndex: 0)
+                        requestQueue.insert(request, at: 0)
                     } else {
                         // Bad request
-                        requestQueue.insert(NSURLRequest(), atIndex: 0)
+                        requestQueue.insert(URLRequest(), at: 0)
                     }
-                    bytesConsumed += data.length
+                    bytesConsumed += data.count
                 }
                 ptr = ptr.successor()
             }
             if bytesConsumed > 0 {
                 // Move remained bytes to the begining.
-                inputBuffer.replaceBytesInRange(NSRange(0..<bytesConsumed), withBytes: nil, length: 0)
+                inputBuffer.replaceBytes(in: NSRange(0..<bytesConsumed), withBytes: nil, length: 0)
             } else if bytesReaded + cursor == inputBuffer.length {
                 // Enlarge input buffer.
                 guard inputBuffer.length < bufferMaxSize else {
@@ -130,16 +132,16 @@ extension XWVHttpConnection : NSStreamDelegate {
             cursor += bytesReaded - bytesConsumed
             if output.hasSpaceAvailable { fallthrough }
 
-        case NSStreamEvent.HasSpaceAvailable:
+        case Stream.Event.hasSpaceAvailable:
             if outputBuffer == nil {
                 guard let request = requestQueue.popLast() else { break }
                 let response = delegate.handleRequest(request)
-                if request.HTTPMethod == "GET", let fileURL = response.URL where fileURL.fileURL {
-                    fileHandle = try! NSFileHandle(forReadingFromURL: fileURL)
+                if request.httpMethod == "GET", let fileURL = response.url , fileURL.isFileURL {
+                    fileHandle = try! FileHandle(forReadingFrom: fileURL)
                     fileSize = Int(fileHandle.seekToEndOfFile())
                 }
                 outputBuffer = response.octetsOfHeaders
-                bytesRemained = outputBuffer.length + fileSize
+                bytesRemained = outputBuffer.count + fileSize
             }
 
             var bytesSent = 0
@@ -147,17 +149,17 @@ extension XWVHttpConnection : NSStreamDelegate {
                 let off: Int
                 if bytesRemained > fileSize {
                     // Send response header
-                    off = outputBuffer.length - (bytesRemained - fileSize)
+                    off = outputBuffer.count - (bytesRemained - fileSize)
                 } else {
                     // Send file content
                     off = (fileSize - bytesRemained) % bufferMaxSize
                     if off == 0 {
-                        fileHandle.seekToFileOffset(UInt64(fileSize - bytesRemained))
-                        outputBuffer = fileHandle.readDataOfLength(bufferMaxSize)
+                        fileHandle.seek(toFileOffset: UInt64(fileSize - bytesRemained))
+                        outputBuffer = fileHandle.readData(ofLength: bufferMaxSize)
                     }
                 }
-                let ptr = UnsafePointer<UInt8>(outputBuffer.bytes)
-                bytesSent = output.write(ptr.advancedBy(off), maxLength: outputBuffer.length - off)
+                let ptr = outputBuffer.bytes.bindMemory(to: UInt8.self, capacity: outputBuffer.count)
+                bytesSent = output.write(ptr.advancedBy(off), maxLength: outputBuffer.count - off)
                 bytesRemained -= bytesSent
             } while bytesRemained > 0 && output.hasSpaceAvailable && bytesSent > 0
             if bytesRemained == 0 {
@@ -168,12 +170,12 @@ extension XWVHttpConnection : NSStreamDelegate {
             }
             if bytesSent < 0 { fallthrough }
 
-        case NSStreamEvent.ErrorOccurred:
+        case Stream.Event.errorOccurred:
             let error = aStream.streamError?.localizedDescription ?? "Unknown"
             log("!HTTP connection error: \(error)")
             fallthrough
 
-        case NSStreamEvent.EndEncountered:
+        case Stream.Event.endEncountered:
             fileHandle = nil
             inputBuffer = nil
             outputBuffer = nil
@@ -186,16 +188,16 @@ extension XWVHttpConnection : NSStreamDelegate {
 }
 
 private extension String {
-    mutating func trim(@noescape predicate: (Character) -> Bool) {
+    mutating func trim(_ predicate: (Character) -> Bool) {
         if !isEmpty {
             var start = startIndex
             while start != endIndex && predicate(self[start]) {
-                start = start.successor()
+                start = self.index(after: start)
             }
             if start < endIndex {
                 var end = endIndex
                 repeat {
-                    end = end.predecessor()
+                  end  = self.index(before: end)
                 } while predicate(self[end])
                 self = self[start ... end]
             } else {
@@ -206,11 +208,11 @@ private extension String {
 }
 
 private extension NSMutableURLRequest {
-    private enum Version : String {
+    enum Version : String {
         case v1_0 = "HTTP/1.0"
         case v1_1 = "HTTP/1.1"
     }
-    private enum Method : String {
+    enum Method : String {
         case Get     = "GET"
         case Head    = "HEAD"
         case Post    = "POST"
@@ -220,66 +222,78 @@ private extension NSMutableURLRequest {
         case Options = "OPTIONS"
         case Trace   = "TRACE"
     }
-    private var CRLF: NSData {
+    var CRLF: Data {
         var CRLF: [UInt8] = [ 0x0d, 0x0a ]
-        return NSData(bytes: &CRLF, length: 2)
+//        return Data(bytes: &CRLF, count: 2)
+        return Data(bytes: UnsafePointer<UInt8>(&CRLF), count: 2)
+        //TODO maybe like this
     }
 
-    convenience init?(data: NSData) {
+    convenience init?(data: Data) {
         self.init()
         var cursor = 0
         repeat {
-            let range = NSRange(cursor..<data.length)
-            guard let end = data.rangeOfData(CRLF, options: NSDataSearchOptions(rawValue: 0), range: range).toRange()?.startIndex,
-                  let line = NSString(data: data.subdataWithRange(NSRange(cursor..<end)), encoding: NSASCIIStringEncoding) as? String else {
+            let range = Range<Int>(cursor..<data.count)
+          
+            guard let end = data.range(of: CRLF, options: NSData.SearchOptions(rawValue: 0), in: range)?.lowerBound,
+                  let line = String(data: data.subdata(in: range), encoding: .ascii) else {
                 return nil
             }
+          
             if cursor == 0 {
                 // request line
                 var method: Method?
                 var target: String = ""
                 var version: Version?
-                if let sp = line.characters.indexOf(" ") {
+                if let sp = line.characters.index(of: " ") {
                     method = Method(rawValue: line[line.startIndex ..< sp])
-                    target = line[sp.successor() ..< line.endIndex]
-                    if method != nil, let sp = target.characters.indexOf(" ") {
-                        version = Version(rawValue: target[sp.successor() ..< target.endIndex])
+                  
+                    target = line[line.characters.index(after: sp) ..< line.endIndex]
+                    if method != nil, let sp = target.characters.index(of: " ") {
+                      
+                        version = Version(rawValue: target[line.characters.index(after: sp) ..< target.endIndex])
                         target = target[target.startIndex ..< sp]
                     }
                 }
                 guard version != nil else { return nil }
-                HTTPMethod = method!.rawValue
-                URL = NSURL(string: target)
+                httpMethod = method!.rawValue
+                url = URL(string: target)
             } else if !line.isEmpty {
                 // header field
-                guard let colon = line.characters.indexOf(":") else { return nil }
+                guard let colon = line.characters.index(of: ":") else { return nil }
                 let name = line[line.startIndex ..< colon]
-                var value = line[colon.successor() ..< line.endIndex]
+              
+              
+                var value = line[line.characters.index(after: colon) ..< line.endIndex]
                 value.trim { $0 == " " || $0 == "\t" }
-                if valueForHTTPHeaderField(name) != nil {
+                if self.value(forHTTPHeaderField: name) != nil {
                     addValue(value, forHTTPHeaderField:name)
                 } else {
                     setValue(value, forHTTPHeaderField:name)
                 }
             }
             cursor = end + 2
-        } while cursor < data.length
+        } while cursor < data.count
     }
 }
 
-private extension NSHTTPURLResponse {
-    var octetsOfHeaders: NSData {
+private extension HTTPURLResponse {
+    var octetsOfHeaders: Data {
         assert(statusCode > 100 && statusCode < 600)
-        let reason = NSHTTPURLResponse.localizedStringForStatusCode(statusCode).capitalizedString
+        let reason = HTTPURLResponse.localizedString(forStatusCode: statusCode).capitalized
         let statusLine = "HTTP/1.1 \(statusCode) \(reason)\r\n"
-        let data = allHeaderFields.reduce(NSMutableData(data: statusLine.dataUsingEncoding(NSASCIIStringEncoding)!)) {
-            $0.appendData(($1.0 as! NSString).dataUsingEncoding(NSASCIIStringEncoding)!)
-            $0.appendData(": ".dataUsingEncoding(NSASCIIStringEncoding)!)
-            $0.appendData(($1.1 as! NSString).dataUsingEncoding(NSASCIIStringEncoding)!)
-            $0.appendData("\r\n".dataUsingEncoding(NSASCIIStringEncoding)!)
-            return $0
+      
+        var data = allHeaderFields.reduce(NSData(data: statusLine.data(using: String.Encoding.ascii)!) as Data) {
+            var result = $0
+        
+            result.append(($1.0 as! NSString).data(using: String.Encoding.ascii.rawValue)!)
+            result.append(": ".data(using: String.Encoding.ascii)!)
+            result.append(($1.1 as! NSString).data(using: String.Encoding.ascii.rawValue)!)
+            result.append("\r\n".data(using: String.Encoding.ascii)!)
+          
+            return result
         }
-        data.appendData("\r\n".dataUsingEncoding(NSASCIIStringEncoding)!)
+        data.append("\r\n".data(using: String.Encoding.ascii)!)
         return data
     }
 }
