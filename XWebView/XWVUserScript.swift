@@ -35,14 +35,14 @@ class XWVUserScript {
         eject()
     }
 
-    private func inject() {
+    fileprivate func inject() {
         guard let webView = webView else { return }
 
         // add to userContentController
         webView.configuration.userContentController.addUserScript(script)
 
         // inject into current context
-        if webView.URL != nil {
+        if webView.url != nil {
             webView.evaluateJavaScript(script.source) {
                 if let error = $1 {
                     log("!Failed to inject script. \(error)")
@@ -50,7 +50,7 @@ class XWVUserScript {
             }
         }
     }
-    private func eject() {
+    fileprivate func eject() {
         guard let webView = webView else { return }
 
         // remove from userContentController
@@ -61,7 +61,7 @@ class XWVUserScript {
             if $0 != self.script { controller.addUserScript($0) }
         }
 
-        if webView.URL != nil, let cleanup = cleanup {
+        if webView.url != nil, let cleanup = cleanup {
             // clean up in current context
             webView.evaluateJavaScript(cleanup, completionHandler: nil)
         }
